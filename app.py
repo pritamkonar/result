@@ -5,7 +5,7 @@ import io
 # --- ReportLab Imports for PDF ---
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # --- Page Setup ---
@@ -23,8 +23,38 @@ st.markdown("""
 st.title("🏆 Automatic Student Ranker")
 st.markdown("Upload your class Excel sheet. This tool will **Sort by Merit**, apply **Tie-Breakers (Old Roll)**, and generate a **New Roll Number**.")
 
+# --- Demo File Generator ---
+def get_demo_file():
+    # Create sample data matching the expected format
+    data = {
+        'Roll No': [101, 102, 103, 104, 105],
+        'Name': ['Amit Sharma', 'Priya Singh', 'Rahul Verma', 'Sneha Gupta', 'Vikram Rao'],
+        'Father\'s Name': ['Rakesh Sharma', 'Karan Singh', 'Manish Verma', 'Suresh Gupta', 'Prakash Rao'],
+        'Address': ['New Delhi', 'Mumbai', 'Pune', 'Kolkata', 'Chennai'],
+        'Gender': ['Male', 'Female', 'Male', 'Female', 'Male'],
+        'Marks Obtained': [850, 920, 780, 890, 910]
+    }
+    df_demo = pd.DataFrame(data)
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_demo.to_excel(writer, index=False, sheet_name='Sheet1')
+    return buffer.getvalue()
+
+# --- Sidebar / Top Section for Template ---
+col_demo, col_upload = st.columns([1, 2])
+with col_demo:
+    st.write("### 📝 Need a Format?")
+    st.write("Download this sample file, fill it, and upload.")
+    st.download_button(
+        label="📥 Download Demo Excel",
+        data=get_demo_file(),
+        file_name="Student_List_Template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 # --- File Uploader ---
-uploaded_file = st.file_uploader("📂 Upload Excel File (.xlsx)", type=['xlsx'])
+st.markdown("---")
+uploaded_file = st.file_uploader("📂 Upload Your Filled Excel File (.xlsx)", type=['xlsx'])
 
 if uploaded_file:
     try:
@@ -46,6 +76,11 @@ if uploaded_file:
                     default_idx = i
                     break
             
+            # If no numeric columns found, handle gracefully
+            if not numeric_cols:
+                st.error("❌ No numeric columns found for Marks. Please check your Excel file.")
+                st.stop()
+                
             score_col = st.selectbox("Select 'Marks Obtained' Column:", numeric_cols, index=default_idx)
 
         with col2:
@@ -133,7 +168,7 @@ if uploaded_file:
                     doc = SimpleDocTemplate(
                         buffer_pdf, 
                         pagesize=A4, 
-                        rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20 # Reduced Margins for more space
+                        rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20
                     )
                     
                     elements = []
@@ -157,20 +192,21 @@ if uploaded_file:
                         spaceAfter=20
                     )
                     
-                    # Reduced font size to fit more text
+                    # Reduced body font size
                     cell_style = ParagraphStyle(
                         'CellStyle',
                         parent=styles['BodyText'],
-                        fontSize=7, 
-                        leading=10,
+                        fontSize=8, 
+                        leading=9,
                         alignment=0 
                     )
                     
+                    # Reduced HEADER font size
                     header_style = ParagraphStyle(
                         'HeaderStyle',
                         parent=styles['Normal'],
-                        fontSize=6,
-                        leading=11,
+                        fontSize=7, 
+                        leading=8,
                         textColor=colors.white,
                         fontName='Helvetica-Bold',
                         alignment=1 # Center
@@ -206,28 +242,35 @@ if uploaded_file:
                         data.append(row_data)
 
                     # -- INTELLIGENT COLUMN SIZING --
-                    # 1. Calculate max character count for each column (Header vs Data)
+                    # 1. Calculate max character count for each column
                     max_chars_per_col = []
                     for col in df_final.columns:
-                        # Max length in the column data
                         max_len_data = df_final[col].astype(str).map(len).max()
-                        # Length of the header itself
                         len_header = len(str(col))
-                        # Pick the bigger one
                         max_chars_per_col.append(max(max_len_data, len_header))
 
-                    # 2. Calculate total characters across all columns
+                    # 2. Calculate total characters
                     total_chars = sum(max_chars_per_col)
 
-                    # 3. Distribute A4 Width (approx 555 points usable) based on character count
+                    # 3. Distribute A4 Width
                     usable_width = 555
                     col_widths = []
-                    for chars in max_chars_per_col:
-                        # Basic proportion: (Chars / Total Chars) * Total Width
-                        # We add a small buffer to avoid being too tight
+                    
+                    for i, col_name in enumerate(df_final.columns):
+                        chars = max_chars_per_col[i]
                         width = (chars / total_chars) * usable_width
-                        # Ensure no column is impossibly small (min 30 points)
+                        
+                        # --- MANUAL OVERRIDES ---
+                        c_name_lower = str(col_name).lower()
+
+                        if 'gender' in c_name_lower or 'sex' in c_name_lower:
+                            width = max(width, 60)
+                        
+                        if 'percent' in c_name_lower:
+                            width = max(width, 55)
+
                         if width < 30: width = 30
+                        
                         col_widths.append(width)
 
                     # -- Create Table --
@@ -258,6 +301,3 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
-
-
-
