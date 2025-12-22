@@ -169,10 +169,10 @@ if uploaded_file:
                     header_style = ParagraphStyle(
                         'HeaderStyle',
                         parent=styles['Normal'],
-                        fontSize=8,
+                        fontSize=7,
                         leading=11,
                         textColor=colors.white,
-                        fontName='Helvetica-Bold',
+                        fontName='arial',
                         alignment=1 # Center
                     )
 
@@ -258,4 +258,5 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
+
 
