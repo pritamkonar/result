@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 import io
 
+# --- ReportLab Imports for PDF ---
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
 # --- Page Setup ---
 st.set_page_config(page_title="Student Ranker Pro", page_icon="🏆", layout="centered")
 
@@ -10,6 +16,7 @@ st.markdown("""
     <style>
     .main { background-color: #f0f2f6; }
     .stButton>button { width: 100%; background-color: #ff4b4b; color: white; }
+    div[data-testid="stExpander"] { background-color: white; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -26,7 +33,7 @@ if uploaded_file:
         st.success("✅ File loaded successfully!")
 
         st.markdown("---")
-        st.subheader("⚙️ Settings")
+        st.subheader("⚙️ Processing Settings")
 
         col1, col2 = st.columns(2)
 
@@ -43,13 +50,22 @@ if uploaded_file:
 
         with col2:
             full_marks = st.number_input("Enter Full Marks:", min_value=1, value=1000, step=10)
+        
+        # --- PDF Header Options ---
+        with st.expander("📝 PDF Header Options (Optional)"):
+            st.info("Enter details below to appear at the top of the PDF.")
+            pdf_school_name = st.text_input("School Name")
+            c1, c2 = st.columns(2)
+            with c1:
+                pdf_class = st.text_input("Class Name")
+            with c2:
+                pdf_year = st.text_input("Year/Session")
 
         # --- Processing Button ---
         if st.button("🚀 Calculate & Organize"):
             with st.spinner('Calculating Ranks and Sorting...'):
                 
                 # 1. Identify and Rename 'Old Roll' BEFORE sorting
-                # We need this column to exist so we can use it as a tie-breaker
                 roll_found = False
                 for col in df.columns:
                     if 'roll' in col.lower() and 'new' not in col.lower():
@@ -62,7 +78,6 @@ if uploaded_file:
                 df['Percentage'] = df['Percentage'].round(2)
 
                 # 3. Sort by Marks (Highest) THEN by Old Roll (Lowest)
-                # This handles the tie-breaker: If marks are same, lower Old Roll gets top position
                 if roll_found:
                     df_sorted = df.sort_values(by=[score_col, 'Old Roll'], ascending=[False, True]).reset_index(drop=True)
                 else:
@@ -70,46 +85,164 @@ if uploaded_file:
                     df_sorted = df.sort_values(by=score_col, ascending=False).reset_index(drop=True)
 
                 # 4. Create 'Rank/ New Roll' Column
-                # Since the list is already sorted with the tie-breaker, we just number them 1 to N
                 df_sorted['Rank/ New Roll'] = range(1, len(df_sorted) + 1)
 
-                # 5. Remove the old 'Rank' column if it exists in input (to avoid confusion)
+                # 5. Remove the old 'Rank' column if it exists
                 if 'Rank' in df_sorted.columns:
                     df_sorted.drop(columns=['Rank'], inplace=True)
 
-                # 6. Reorder Columns: Put 'Rank/ New Roll' right after 'Old Roll'
+                # 6. Reorder Columns
                 cols = list(df_sorted.columns)
-                
-                # Remove 'Rank/ New Roll' from the end list temporarily
-                if 'Rank/ New Roll' in cols:
-                    cols.remove('Rank/ New Roll')
+                if 'Rank/ New Roll' in cols: cols.remove('Rank/ New Roll')
 
-                # Find 'Old Roll' and insert 'New Roll' after it
                 if 'Old Roll' in cols:
                     old_roll_index = cols.index('Old Roll')
                     cols.insert(old_roll_index + 1, 'Rank/ New Roll')
                 else:
-                    # If 'Old Roll' wasn't found, put New Roll at the very start
                     cols.insert(0, 'Rank/ New Roll')
                 
-                # Apply the new column order
                 df_final = df_sorted[cols]
 
                 # Show Result Preview
-                st.write("### ✅ Ranked List Preview (With Tie-Breaker)")
+                st.write("### ✅ Ranked List Preview")
                 st.dataframe(df_final.head(10))
 
-                # --- Download Section ---
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                    df_final.to_excel(writer, index=False, sheet_name='New Roll List')
+                st.markdown("---")
+                st.subheader("📥 Download Results")
                 
-                st.download_button(
-                    label="📥 Download Final Spreadsheet",
-                    data=buffer.getvalue(),
-                    file_name="Rank_Wise_Student_List.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                d_col1, d_col2 = st.columns(2)
+
+                # --- 1. Excel Download ---
+                with d_col1:
+                    buffer_excel = io.BytesIO()
+                    with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                        df_final.to_excel(writer, index=False, sheet_name='New Roll List')
+                    
+                    st.download_button(
+                        label="📥 Download Excel (.xlsx)",
+                        data=buffer_excel.getvalue(),
+                        file_name="Rank_Wise_Student_List.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
+                # --- 2. PDF Download ---
+                with d_col2:
+                    # Create PDF Buffer
+                    buffer_pdf = io.BytesIO()
+                    
+                    # Setup A4 document
+                    doc = SimpleDocTemplate(
+                        buffer_pdf, 
+                        pagesize=A4, 
+                        rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30
+                    )
+                    
+                    elements = []
+                    styles = getSampleStyleSheet()
+                    
+                    # -- Custom Styles --
+                    title_style = ParagraphStyle(
+                        'CustomTitle',
+                        parent=styles['Heading1'],
+                        fontSize=16,
+                        alignment=1, # Center
+                        spaceAfter=10,
+                        textColor=colors.darkblue
+                    )
+                    
+                    sub_style = ParagraphStyle(
+                        'CustomSub',
+                        parent=styles['Normal'],
+                        fontSize=12,
+                        alignment=1, # Center
+                        spaceAfter=20
+                    )
+                    
+                    # This CellStyle is crucial for auto-wrapping text
+                    cell_style = ParagraphStyle(
+                        'CellStyle',
+                        parent=styles['BodyText'],
+                        fontSize=9,
+                        leading=11,
+                        alignment=0 # Left align
+                    )
+                    
+                    header_style = ParagraphStyle(
+                        'HeaderStyle',
+                        parent=styles['Normal'],
+                        fontSize=10,
+                        leading=12,
+                        textColor=colors.white,
+                        fontName='Helvetica-Bold',
+                        alignment=1 # Center
+                    )
+
+                    # -- Add Headers --
+                    if pdf_school_name:
+                        elements.append(Paragraph(pdf_school_name, title_style))
+                    else:
+                        elements.append(Paragraph("Student Merit List", title_style))
+                        
+                    details_text = []
+                    if pdf_class: details_text.append(f"Class: {pdf_class}")
+                    if pdf_year: details_text.append(f"Session: {pdf_year}")
+                    if details_text:
+                        elements.append(Paragraph(" | ".join(details_text), sub_style))
+
+                    # -- Prepare Table Data --
+                    # Headers
+                    headers = [Paragraph(str(col), header_style) for col in df_final.columns]
+                    data = [headers]
+
+                    # Body Data (With wrapping)
+                    for index, row in df_final.iterrows():
+                        row_data = []
+                        for item in row:
+                            # Handle different data types cleanly
+                            if pd.isna(item):
+                                text_val = "-"
+                            elif isinstance(item, float):
+                                text_val = f"{item:.2f}" # Format floats to 2 decimals
+                            else:
+                                text_val = str(item)
+                            
+                            row_data.append(Paragraph(text_val, cell_style))
+                        data.append(row_data)
+
+                    # -- Calculate Column Widths --
+                    # A4 width (595) - Margins (60) = 535 usable points
+                    usable_width = 535
+                    col_count = len(df_final.columns)
+                    col_widths = [usable_width / col_count] * col_count 
+
+                    # -- Create Table --
+                    t = Table(data, colWidths=col_widths)
+                    
+                    # Table Styling
+                    t.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue), # Header bg
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), # Header text
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), # Vertical align middle
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), # Grid lines
+                        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white]), # Zebra stripe
+                        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                        ('TOPPADDING', (0, 0), (-1, -1), 6),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ]))
+
+                    elements.append(t)
+                    
+                    # Build PDF
+                    doc.build(elements)
+                    
+                    st.download_button(
+                        label="📥 Download PDF (A4)",
+                        data=buffer_pdf.getvalue(),
+                        file_name="Merit_List.pdf",
+                        mime="application/pdf"
+                    )
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
