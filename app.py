@@ -127,14 +127,13 @@ if uploaded_file:
 
                 # --- 2. PDF Download ---
                 with d_col2:
-                    # Create PDF Buffer
                     buffer_pdf = io.BytesIO()
                     
                     # Setup A4 document
                     doc = SimpleDocTemplate(
                         buffer_pdf, 
                         pagesize=A4, 
-                        rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30
+                        rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20 # Reduced Margins for more space
                     )
                     
                     elements = []
@@ -158,20 +157,20 @@ if uploaded_file:
                         spaceAfter=20
                     )
                     
-                    # This CellStyle is crucial for auto-wrapping text
+                    # Reduced font size to fit more text
                     cell_style = ParagraphStyle(
                         'CellStyle',
                         parent=styles['BodyText'],
-                        fontSize=9,
-                        leading=11,
-                        alignment=0 # Left align
+                        fontSize=8.5, 
+                        leading=10,
+                        alignment=0 
                     )
                     
                     header_style = ParagraphStyle(
                         'HeaderStyle',
                         parent=styles['Normal'],
-                        fontSize=10,
-                        leading=12,
+                        fontSize=9,
+                        leading=11,
                         textColor=colors.white,
                         fontName='Helvetica-Bold',
                         alignment=1 # Center
@@ -190,51 +189,64 @@ if uploaded_file:
                         elements.append(Paragraph(" | ".join(details_text), sub_style))
 
                     # -- Prepare Table Data --
-                    # Headers
                     headers = [Paragraph(str(col), header_style) for col in df_final.columns]
                     data = [headers]
 
-                    # Body Data (With wrapping)
                     for index, row in df_final.iterrows():
                         row_data = []
                         for item in row:
-                            # Handle different data types cleanly
                             if pd.isna(item):
                                 text_val = "-"
                             elif isinstance(item, float):
-                                text_val = f"{item:.2f}" # Format floats to 2 decimals
+                                text_val = f"{item:.2f}"
                             else:
                                 text_val = str(item)
                             
                             row_data.append(Paragraph(text_val, cell_style))
                         data.append(row_data)
 
-                    # -- Calculate Column Widths --
-                    # A4 width (595) - Margins (60) = 535 usable points
-                    usable_width = 535
-                    col_count = len(df_final.columns)
-                    col_widths = [usable_width / col_count] * col_count 
+                    # -- INTELLIGENT COLUMN SIZING --
+                    # 1. Calculate max character count for each column (Header vs Data)
+                    max_chars_per_col = []
+                    for col in df_final.columns:
+                        # Max length in the column data
+                        max_len_data = df_final[col].astype(str).map(len).max()
+                        # Length of the header itself
+                        len_header = len(str(col))
+                        # Pick the bigger one
+                        max_chars_per_col.append(max(max_len_data, len_header))
+
+                    # 2. Calculate total characters across all columns
+                    total_chars = sum(max_chars_per_col)
+
+                    # 3. Distribute A4 Width (approx 555 points usable) based on character count
+                    usable_width = 555
+                    col_widths = []
+                    for chars in max_chars_per_col:
+                        # Basic proportion: (Chars / Total Chars) * Total Width
+                        # We add a small buffer to avoid being too tight
+                        width = (chars / total_chars) * usable_width
+                        # Ensure no column is impossibly small (min 30 points)
+                        if width < 30: width = 30
+                        col_widths.append(width)
 
                     # -- Create Table --
                     t = Table(data, colWidths=col_widths)
                     
-                    # Table Styling
                     t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue), # Header bg
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), # Header text
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), # Vertical align middle
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), # Grid lines
-                        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white]), # Zebra stripe
-                        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-                        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-                        ('TOPPADDING', (0, 0), (-1, -1), 6),
-                        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                        ('TOPPADDING', (0, 0), (-1, -1), 4),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
                     ]))
 
                     elements.append(t)
-                    
-                    # Build PDF
                     doc.build(elements)
                     
                     st.download_button(
