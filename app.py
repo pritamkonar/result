@@ -161,7 +161,7 @@ if uploaded_file:
                     cell_style = ParagraphStyle(
                         'CellStyle',
                         parent=styles['BodyText'],
-                        fontSize=8.5, 
+                        fontSize=7, 
                         leading=10,
                         alignment=0 
                     )
@@ -169,7 +169,7 @@ if uploaded_file:
                     header_style = ParagraphStyle(
                         'HeaderStyle',
                         parent=styles['Normal'],
-                        fontSize=9,
+                        fontSize=8,
                         leading=11,
                         textColor=colors.white,
                         fontName='Helvetica-Bold',
@@ -258,3 +258,4 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
+
