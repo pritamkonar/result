@@ -172,7 +172,7 @@ if uploaded_file:
                         fontSize=7,
                         leading=11,
                         textColor=colors.white,
-                        fontName='arial',
+                        fontName='Helvetica-Bold',
                         alignment=1 # Center
                     )
 
