@@ -14,7 +14,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("🏆 Automatic Student Ranker")
-st.markdown("Upload your class Excel sheet. This tool will **Sort by Merit**, rename 'Roll No' to 'Old Roll', and generate a **New Roll Number**.")
+st.markdown("Upload your class Excel sheet. This tool will **Sort by Merit**, apply **Tie-Breakers (Old Roll)**, and generate a **New Roll Number**.")
 
 # --- File Uploader ---
 uploaded_file = st.file_uploader("📂 Upload Excel File (.xlsx)", type=['xlsx'])
@@ -48,25 +48,31 @@ if uploaded_file:
         if st.button("🚀 Calculate & Organize"):
             with st.spinner('Calculating Ranks and Sorting...'):
                 
-                # 1. Calculate Percentage
+                # 1. Identify and Rename 'Old Roll' BEFORE sorting
+                # We need this column to exist so we can use it as a tie-breaker
+                roll_found = False
+                for col in df.columns:
+                    if 'roll' in col.lower() and 'new' not in col.lower():
+                        df.rename(columns={col: 'Old Roll'}, inplace=True)
+                        roll_found = True
+                        break
+                
+                # 2. Calculate Percentage
                 df['Percentage'] = (df[score_col] / full_marks) * 100
                 df['Percentage'] = df['Percentage'].round(2)
 
-                # 2. Sort by Marks (Highest first)
-                # We sort FIRST so we can assign sequential New Roll numbers (1, 2, 3...)
-                df_sorted = df.sort_values(by=score_col, ascending=False).reset_index(drop=True)
+                # 3. Sort by Marks (Highest) THEN by Old Roll (Lowest)
+                # This handles the tie-breaker: If marks are same, lower Old Roll gets top position
+                if roll_found:
+                    df_sorted = df.sort_values(by=[score_col, 'Old Roll'], ascending=[False, True]).reset_index(drop=True)
+                else:
+                    st.warning("⚠️ 'Roll No' column not found. Sorting strictly by Marks only.")
+                    df_sorted = df.sort_values(by=score_col, ascending=False).reset_index(drop=True)
 
-                # 3. Create 'Rank/ New Roll' Column
-                # Assign 1 to N based on the sorted order
+                # 4. Create 'Rank/ New Roll' Column
+                # Since the list is already sorted with the tie-breaker, we just number them 1 to N
                 df_sorted['Rank/ New Roll'] = range(1, len(df_sorted) + 1)
 
-                # 4. Rename 'Roll No.' to 'Old Roll'
-                # We look for columns that look like "Roll No"
-                for col in df_sorted.columns:
-                    if 'roll' in col.lower() and 'new' not in col.lower():
-                        df_sorted.rename(columns={col: 'Old Roll'}, inplace=True)
-                        break
-                
                 # 5. Remove the old 'Rank' column if it exists in input (to avoid confusion)
                 if 'Rank' in df_sorted.columns:
                     df_sorted.drop(columns=['Rank'], inplace=True)
@@ -90,7 +96,7 @@ if uploaded_file:
                 df_final = df_sorted[cols]
 
                 # Show Result Preview
-                st.write("### ✅ Ranked List Preview")
+                st.write("### ✅ Ranked List Preview (With Tie-Breaker)")
                 st.dataframe(df_final.head(10))
 
                 # --- Download Section ---
