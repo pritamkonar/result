@@ -23,38 +23,8 @@ st.markdown("""
 st.title("🏆 Automatic Student Ranker")
 st.markdown("Upload your class Excel sheet. This tool will **Sort by Merit**, apply **Tie-Breakers (Old Roll)**, and generate a **New Roll Number**.")
 
-# --- Demo File Generator ---
-def get_demo_file():
-    # Create sample data matching the expected format
-    data = {
-        'Roll No': [101, 102, 103, 104, 105],
-        'Name': ['Amit Sharma', 'Priya Singh', 'Rahul Verma', 'Sneha Gupta', 'Vikram Rao'],
-        'Father\'s Name': ['Rakesh Sharma', 'Karan Singh', 'Manish Verma', 'Suresh Gupta', 'Prakash Rao'],
-        'Address': ['New Delhi', 'Mumbai', 'Pune', 'Kolkata', 'Chennai'],
-        'Gender': ['Male', 'Female', 'Male', 'Female', 'Male'],
-        'Marks Obtained': [850, 920, 780, 890, 910]
-    }
-    df_demo = pd.DataFrame(data)
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_demo.to_excel(writer, index=False, sheet_name='Sheet1')
-    return buffer.getvalue()
-
-# --- Sidebar / Top Section for Template ---
-col_demo, col_upload = st.columns([1, 2])
-with col_demo:
-    st.write("### 📝 Need a Format?")
-    st.write("Download this sample file, fill it, and upload.")
-    st.download_button(
-        label="📥 Download Demo Excel",
-        data=get_demo_file(),
-        file_name="Student_List_Template.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
 # --- File Uploader ---
-st.markdown("---")
-uploaded_file = st.file_uploader("📂 Upload Your Filled Excel File (.xlsx)", type=['xlsx'])
+uploaded_file = st.file_uploader("📂 Upload Excel File (.xlsx)", type=['xlsx'])
 
 if uploaded_file:
     try:
@@ -76,11 +46,6 @@ if uploaded_file:
                     default_idx = i
                     break
             
-            # If no numeric columns found, handle gracefully
-            if not numeric_cols:
-                st.error("❌ No numeric columns found for Marks. Please check your Excel file.")
-                st.stop()
-                
             score_col = st.selectbox("Select 'Marks Obtained' Column:", numeric_cols, index=default_idx)
 
         with col2:
@@ -192,21 +157,19 @@ if uploaded_file:
                         spaceAfter=20
                     )
                     
-                    # Reduced body font size
                     cell_style = ParagraphStyle(
                         'CellStyle',
                         parent=styles['BodyText'],
-                        fontSize=8, 
-                        leading=9,
+                        fontSize=8.5, 
+                        leading=10,
                         alignment=0 
                     )
                     
-                    # Reduced HEADER font size
                     header_style = ParagraphStyle(
                         'HeaderStyle',
                         parent=styles['Normal'],
-                        fontSize=7, 
-                        leading=8,
+                        fontSize=9,
+                        leading=11,
                         textColor=colors.white,
                         fontName='Helvetica-Bold',
                         alignment=1 # Center
@@ -241,7 +204,7 @@ if uploaded_file:
                             row_data.append(Paragraph(text_val, cell_style))
                         data.append(row_data)
 
-                    # -- INTELLIGENT COLUMN SIZING --
+                    # -- INTELLIGENT COLUMN SIZING (WITH OVERRIDES) --
                     # 1. Calculate max character count for each column
                     max_chars_per_col = []
                     for col in df_final.columns:
@@ -258,17 +221,21 @@ if uploaded_file:
                     
                     for i, col_name in enumerate(df_final.columns):
                         chars = max_chars_per_col[i]
+                        # Calculate proportional width
                         width = (chars / total_chars) * usable_width
                         
-                        # --- MANUAL OVERRIDES ---
+                        # --- MANUAL OVERRIDES FOR SPECIFIC COLUMNS ---
                         c_name_lower = str(col_name).lower()
 
+                        # Override 1: Boost GENDER column
                         if 'gender' in c_name_lower or 'sex' in c_name_lower:
-                            width = max(width, 60)
+                            width = max(width, 60) # Force minimum width of 60 points
                         
+                        # Override 2: Boost PERCENTAGE column
                         if 'percent' in c_name_lower:
-                            width = max(width, 55)
+                            width = max(width, 50) # Force minimum width of 50 points
 
+                        # Override 3: Safety min width for any column
                         if width < 30: width = 30
                         
                         col_widths.append(width)
