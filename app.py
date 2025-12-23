@@ -21,7 +21,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("🏆 Automatic Student Ranker")
-st.markdown("Upload your class Excel sheet. This tool will **Sort by Merit**, apply **Tie-Breakers (Old Roll)**, and generate a **New Roll Number**.")
+st.markdown("Upload your class Excel sheet. This tool will **Sort by Merit**, apply **Tie-Breakers (Old Roll)**, and generate a **New Roll Number** Tool Developed by **Pritam Konar**.")
 
 # --- File Uploader ---
 uploaded_file = st.file_uploader("📂 Upload Excel File (.xlsx)", type=['xlsx'])
@@ -258,3 +258,4 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
+
