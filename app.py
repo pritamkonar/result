@@ -5,7 +5,7 @@ import io
 # --- ReportLab Imports for PDF ---
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # --- Page Setup ---
@@ -133,7 +133,7 @@ if uploaded_file:
                     doc = SimpleDocTemplate(
                         buffer_pdf, 
                         pagesize=A4, 
-                        rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20
+                        rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20 # Reduced Margins for more space
                     )
                     
                     elements = []
@@ -157,6 +157,7 @@ if uploaded_file:
                         spaceAfter=20
                     )
                     
+                    # Reduced font size to fit more text
                     cell_style = ParagraphStyle(
                         'CellStyle',
                         parent=styles['BodyText'],
@@ -204,40 +205,29 @@ if uploaded_file:
                             row_data.append(Paragraph(text_val, cell_style))
                         data.append(row_data)
 
-                    # -- INTELLIGENT COLUMN SIZING (WITH OVERRIDES) --
-                    # 1. Calculate max character count for each column
+                    # -- INTELLIGENT COLUMN SIZING --
+                    # 1. Calculate max character count for each column (Header vs Data)
                     max_chars_per_col = []
                     for col in df_final.columns:
+                        # Max length in the column data
                         max_len_data = df_final[col].astype(str).map(len).max()
+                        # Length of the header itself
                         len_header = len(str(col))
+                        # Pick the bigger one
                         max_chars_per_col.append(max(max_len_data, len_header))
 
-                    # 2. Calculate total characters
+                    # 2. Calculate total characters across all columns
                     total_chars = sum(max_chars_per_col)
 
-                    # 3. Distribute A4 Width
+                    # 3. Distribute A4 Width (approx 555 points usable) based on character count
                     usable_width = 555
                     col_widths = []
-                    
-                    for i, col_name in enumerate(df_final.columns):
-                        chars = max_chars_per_col[i]
-                        # Calculate proportional width
+                    for chars in max_chars_per_col:
+                        # Basic proportion: (Chars / Total Chars) * Total Width
+                        # We add a small buffer to avoid being too tight
                         width = (chars / total_chars) * usable_width
-                        
-                        # --- MANUAL OVERRIDES FOR SPECIFIC COLUMNS ---
-                        c_name_lower = str(col_name).lower()
-
-                        # Override 1: Boost GENDER column
-                        if 'gender' in c_name_lower or 'sex' in c_name_lower:
-                            width = max(width, 60) # Force minimum width of 60 points
-                        
-                        # Override 2: Boost PERCENTAGE column
-                        if 'percent' in c_name_lower:
-                            width = max(width, 50) # Force minimum width of 50 points
-
-                        # Override 3: Safety min width for any column
+                        # Ensure no column is impossibly small (min 30 points)
                         if width < 30: width = 30
-                        
                         col_widths.append(width)
 
                     # -- Create Table --
