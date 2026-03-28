@@ -455,13 +455,14 @@ def main():
                 selected_cls_list = sort_classes(df['class'].unique())
 
         def generate_student_list_pdf(student_df, classes_to_print):
-            """Generates a PDF with Boys on the Left and Girls on the Right."""
+            """Generates a compact 6-column PDF to fit a whole class on one page."""
             buf = io.BytesIO()
-            doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15*mm, rightMargin=15*mm, topMargin=15*mm, bottomMargin=15*mm)
+            # Extremely tight margins to maximize space
+            doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
             elements = []
             
-            title_style = ParagraphStyle(name="Title", fontSize=16, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=2*mm)
-            subtitle_style = ParagraphStyle(name="Sub", fontSize=14, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=8*mm)
+            title_style = ParagraphStyle(name="Title", fontSize=13, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=2*mm)
+            subtitle_style = ParagraphStyle(name="Sub", fontSize=11, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=5*mm)
             
             for idx, cls in enumerate(classes_to_print):
                 if idx > 0: elements.append(PageBreak())
@@ -474,28 +475,26 @@ def main():
                 boys = cls_data[cls_data['gender'] == 'BOYS'].sort_values('roll')
                 girls = cls_data[cls_data['gender'] == 'GIRLS'].sort_values('roll')
                 
-                # Prepare lists for pairing
                 b_list = [[str(i+1), str(row['roll']), str(row['name'])] for i, (_, row) in enumerate(boys.iterrows())]
                 g_list = [[str(i+1), str(row['roll']), str(row['name'])] for i, (_, row) in enumerate(girls.iterrows())]
                 
-                # Find maximum rows needed
                 max_len = max(len(b_list), len(g_list))
                 
-                # Pad shorter list with empty strings
+                # Pad shorter list
                 while len(b_list) < max_len: b_list.append(["", "", ""])
                 while len(g_list) < max_len: g_list.append(["", "", ""])
                 
-                # Construct combined Table Data (7 Columns total: 3 Boys, 1 Spacer, 3 Girls)
+                # 6 Column Data Layout
                 data = [
-                    ["BOYS", "", "", "", "GIRLS", "", ""],
-                    ["SL.", "Roll", "Name", "", "SL.", "Roll", "Name"]
+                    ["BOYS", "", "", "GIRLS", "", ""],
+                    ["SL.", "Roll", "Name", "SL.", "Roll", "Name"]
                 ]
                 
                 for i in range(max_len):
-                    data.append(b_list[i] + [""] + g_list[i])
+                    data.append(b_list[i] + g_list[i])
                 
-                # Total Width 180mm (A4 210mm - 30mm Margins)
-                col_widths = [11*mm, 18*mm, 59*mm, 4*mm, 11*mm, 18*mm, 59*mm]
+                # Total Width 186mm (A4 210mm - 24mm Margins)
+                col_widths = [12*mm, 16*mm, 65*mm, 12*mm, 16*mm, 65*mm]
                 
                 tbl_style = TableStyle([
                     # BOYS Top Header
@@ -506,38 +505,33 @@ def main():
                     ('FONTNAME', (0,0), (2,0), 'Helvetica-Bold'),
                     
                     # GIRLS Top Header
-                    ('SPAN', (4,0), (6,0)),
-                    ('BACKGROUND', (4,0), (6,0), colors.HexColor("#0f3460")),
-                    ('TEXTCOLOR', (4,0), (6,0), colors.white),
-                    ('ALIGN', (4,0), (6,0), 'CENTER'),
-                    ('FONTNAME', (4,0), (6,0), 'Helvetica-Bold'),
+                    ('SPAN', (3,0), (5,0)),
+                    ('BACKGROUND', (3,0), (5,0), colors.HexColor("#0f3460")),
+                    ('TEXTCOLOR', (3,0), (5,0), colors.white),
+                    ('ALIGN', (3,0), (5,0), 'CENTER'),
+                    ('FONTNAME', (3,0), (5,0), 'Helvetica-Bold'),
                     
-                    # Subheaders (SL, Roll, Name)
-                    ('BACKGROUND', (0,1), (2,1), colors.HexColor("#e0e0e0")),
-                    ('BACKGROUND', (4,1), (6,1), colors.HexColor("#e0e0e0")),
+                    # Subheaders
+                    ('BACKGROUND', (0,1), (5,1), colors.HexColor("#e0e0e0")),
                     ('FONTNAME', (0,1), (-1,1), 'Helvetica-Bold'),
                     
-                    # Data Alignment
+                    # Alignments
                     ('ALIGN', (0,1), (1,-1), 'CENTER'), # Boys SL, Roll
                     ('ALIGN', (2,1), (2,-1), 'LEFT'),   # Boys Name
-                    ('ALIGN', (4,1), (5,-1), 'CENTER'), # Girls SL, Roll
-                    ('ALIGN', (6,1), (6,-1), 'LEFT'),   # Girls Name
+                    ('ALIGN', (3,1), (4,-1), 'CENTER'), # Girls SL, Roll
+                    ('ALIGN', (5,1), (5,-1), 'LEFT'),   # Girls Name
                     
-                    # Formatting
-                    ('FONTSIZE', (0,0), (-1,-1), 9),
+                    # SMALL FONT and MINIMAL PADDING to fit 120+ kids per page
+                    ('FONTSIZE', (0,0), (-1,-1), 8),
                     ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('TOPPADDING', (0,0), (-1,-1), 2),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
                     
-                    # Grid for BOYS (Cols 0-2)
-                    ('GRID', (0,0), (2,-1), 0.5, colors.black),
-                    # Grid for GIRLS (Cols 4-6)
-                    ('GRID', (4,0), (6,-1), 0.5, colors.black),
-                    
-                    # Cell Padding
-                    ('TOPPADDING', (0,0), (-1,-1), 4),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                    # Grid and Center Divider
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+                    ('LINEAFTER', (2,0), (2,-1), 1.5, colors.black), # Thick divider down the middle
                 ])
                 
-                # repeatRows=2 ensures headers show up on new pages automatically!
                 t = Table(data, colWidths=col_widths, repeatRows=2)
                 t.setStyle(tbl_style)
                 elements.append(t)
