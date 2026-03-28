@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle, Paragraph,
-    Spacer, PageBreak, HRFlowable
+    Spacer, PageBreak, HRFlowable, KeepTogether
 )
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
@@ -180,6 +180,7 @@ def _room_diagram(benches: list[list], room_config: dict) -> Drawing:
     SEAT_R = 6
     COLS = len(col_heights)
     max_rows = max(col_heights) if col_heights else 1
+    
     dw = COLS * (B_W + GAP_X) + GAP_X
     dh = max_rows * (B_H + GAP_Y) + GAP_Y + 22  
 
@@ -205,6 +206,22 @@ def _room_diagram(benches: list[list], room_config: dict) -> Drawing:
             for sp_x, sp_y in [(x + 10, y + 10), (x + B_W / 2, y + 10), (x + B_W - 10, y + 10)]:
                 d.add(Rect(sp_x - SEAT_R, sp_y - SEAT_R, SEAT_R * 2, SEAT_R * 2, fillColor=fill, strokeColor=colors.HexColor("#37474f"), strokeWidth=0.6))
             bench_idx += 1
+            
+    # Dynamic Scaling Engine to prevent LayoutError on massive rooms
+    MAX_HEIGHT = 280.0 # Safe height to share a page with the summary tables
+    MAX_WIDTH = 500.0  # Safe A4 width
+    
+    scale_factor = 1.0
+    if dh > MAX_HEIGHT:
+        scale_factor = MAX_HEIGHT / dh
+    if dw * scale_factor > MAX_WIDTH:
+        scale_factor = min(scale_factor, MAX_WIDTH / dw)
+        
+    if scale_factor < 1.0:
+        d.width = dw * scale_factor
+        d.height = dh * scale_factor
+        d.scale(scale_factor, scale_factor)
+
     return d
 
 def generate_pdf(allocated_rooms: dict, rooms_config: list) -> io.BytesIO:
@@ -248,9 +265,13 @@ def generate_pdf(allocated_rooms: dict, rooms_config: list) -> io.BytesIO:
         story.append(summary_tbl)
         story.append(Spacer(1, 4*mm))
 
-        story.append(Paragraph(f"CLASSROOM LAYOUT  (Total Benches: {sum(config['cols'])})", st_section))
-        story.append(_room_diagram(benches, config))
-        story.append(Spacer(1, 4*mm))
+        # Bundle diagram and its title to stay on the same page
+        diagram_flowables = [
+            Paragraph(f"CLASSROOM LAYOUT  (Total Benches: {sum(config['cols'])})", st_section),
+            _room_diagram(benches, config),
+            Spacer(1, 4*mm)
+        ]
+        story.append(KeepTogether(diagram_flowables))
 
         story.append(Paragraph("BENCH-WISE SEATING ARRANGEMENT", st_section))
         bench_hdr = [["Bench\nNo.", "LEFT SEAT\n(Roll | Class | Gender | Name)", "MIDDLE SEAT\n(Roll | Class | Gender | Name)", "RIGHT SEAT\n(Roll | Class | Gender | Name)"]]
@@ -391,7 +412,6 @@ def main():
                 selected_cls_list = sort_classes(df['class'].unique())
 
         def generate_student_list_pdf(student_df, classes_to_print):
-            """Generates an ultra-compressed 6-Table (3 Boys + 3 Girls) layout per page."""
             buf = io.BytesIO()
             doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=8*mm, rightMargin=8*mm, topMargin=10*mm, bottomMargin=10*mm)
             elements = []
@@ -412,11 +432,9 @@ def main():
                 b_list = [[str(i+1), str(row['roll']), str(row['name'])] for i, (_, row) in enumerate(boys.iterrows())]
                 g_list = [[str(i+1), str(row['roll']), str(row['name'])] for i, (_, row) in enumerate(girls.iterrows())]
                 
-                # Calculate minimum rows needed assuming we split into 3 vertical blocks for boys and 3 for girls
                 rows_needed = max(math.ceil(len(b_list)/3), math.ceil(len(g_list)/3))
                 if rows_needed == 0: continue
                 
-                # 18 columns total (6 sets of SL, Roll, Name)
                 data = [
                     ["BOYS", "", "", "", "", "", "", "", "", "GIRLS", "", "", "", "", "", "", "", ""],
                     ["SL", "Roll", "Name"] * 6
@@ -424,13 +442,11 @@ def main():
                 
                 for i in range(rows_needed):
                     row = []
-                    # 3 Blocks of Boys
                     for b_block in range(3):
                         b_idx = i + b_block * rows_needed
                         if b_idx < len(b_list): row.extend(b_list[b_idx])
                         else: row.extend(["", "", ""])
                             
-                    # 3 Blocks of Girls
                     for g_block in range(3):
                         g_idx = i + g_block * rows_needed
                         if g_idx < len(g_list): row.extend(g_list[g_idx])
@@ -438,44 +454,31 @@ def main():
                             
                     data.append(row)
                 
-                # Total width 192mm (fits perfectly inside 210mm A4 minus 16mm margins)
                 col_widths = [5.5*mm, 7.5*mm, 19*mm] * 6 
                 
                 ts = [
-                    ('SPAN', (0,0), (8,0)),   # Span "BOYS"
-                    ('SPAN', (9,0), (17,0)),  # Span "GIRLS"
-                    
-                    # Colors
-                    ('BACKGROUND', (0,0), (8,0), colors.HexColor("#e3f2fd")), # Blue tint for Boys header
-                    ('BACKGROUND', (9,0), (17,0), colors.HexColor("#fce4ec")), # Pink tint for Girls header
-                    ('BACKGROUND', (0,1), (17,1), colors.HexColor("#eeeeee")), # Grey for Subheaders
-                    
-                    # Alignments & Font
+                    ('SPAN', (0,0), (8,0)), ('SPAN', (9,0), (17,0)),
+                    ('BACKGROUND', (0,0), (8,0), colors.HexColor("#e3f2fd")), 
+                    ('BACKGROUND', (9,0), (17,0), colors.HexColor("#fce4ec")), 
+                    ('BACKGROUND', (0,1), (17,1), colors.HexColor("#eeeeee")),
                     ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                     ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
                     ('FONTNAME', (0,0), (-1,1), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0,0), (-1,-1), 6.5), # SMALL FONT to maximize fit
+                    ('FONTSIZE', (0,0), (-1,-1), 6.5), 
                     
-                    # Name Left-Align
                     ('ALIGN', (2,2), (2,-1), 'LEFT'), ('ALIGN', (5,2), (5,-1), 'LEFT'),
                     ('ALIGN', (8,2), (8,-1), 'LEFT'), ('ALIGN', (11,2), (11,-1), 'LEFT'),
                     ('ALIGN', (14,2), (14,-1), 'LEFT'), ('ALIGN', (17,2), (17,-1), 'LEFT'),
                     
-                    # Core Grid
                     ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-                    
-                    # Dividing lines to create the "6 Table" look
                     ('LINEAFTER', (2,0), (2,-1), 1.2, colors.black),
                     ('LINEAFTER', (5,0), (5,-1), 1.2, colors.black),
-                    ('LINEAFTER', (8,0), (8,-1), 2.5, colors.black), # Thickest center separator
+                    ('LINEAFTER', (8,0), (8,-1), 2.5, colors.black), 
                     ('LINEAFTER', (11,0), (11,-1), 1.2, colors.black),
                     ('LINEAFTER', (14,0), (14,-1), 1.2, colors.black),
                     
-                    # Extreme compression padding
-                    ('TOPPADDING', (0,0), (-1,-1), 1),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-                    ('LEFTPADDING', (0,0), (-1,-1), 1),
-                    ('RIGHTPADDING', (0,0), (-1,-1), 1),
+                    ('TOPPADDING', (0,0), (-1,-1), 1), ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                    ('LEFTPADDING', (0,0), (-1,-1), 1), ('RIGHTPADDING', (0,0), (-1,-1), 1),
                 ]
                 
                 t = Table(data, colWidths=col_widths, repeatRows=2)
