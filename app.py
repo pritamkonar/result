@@ -73,7 +73,6 @@ def read_students(file) -> pd.DataFrame:
 
     df_out = pd.DataFrame(rows)
     if not df_out.empty:
-        # Enforce strict sorting at the dataset level
         df_out['class_rank'] = df_out['class'].apply(lambda x: CLASS_ORDER.index(x) if x in CLASS_ORDER else 99)
         df_out['gender_rank'] = df_out['gender'].apply(lambda x: 0 if x == 'BOYS' else 1)
         df_out = df_out.sort_values(['class_rank', 'gender_rank', 'roll']).drop(columns=['class_rank', 'gender_rank']).reset_index(drop=True)
@@ -83,7 +82,6 @@ def read_students(file) -> pd.DataFrame:
 # ─── Dynamic Room Distribution ───────────────────────────────────────────────
 
 def distribute_to_rooms(df: pd.DataFrame, rooms_config: list, separate_genders: bool) -> tuple[dict, list]:
-    """Distributes students into available rooms based on configured capacity and rules."""
     allocated_rooms = {r["name"]: [] for r in rooms_config}
     unassigned_students = []
     
@@ -92,8 +90,7 @@ def distribute_to_rooms(df: pd.DataFrame, rooms_config: list, separate_genders: 
     
     def pop_mixed_student(student_dict):
         available_classes = [c for c in student_dict.keys() if len(student_dict[c]) > 0]
-        if not available_classes:
-            return None
+        if not available_classes: return None
         available_classes.sort(key=lambda c: len(student_dict[c]), reverse=True)
         return student_dict[available_classes[0]].pop(0)
 
@@ -112,42 +109,33 @@ def distribute_to_rooms(df: pd.DataFrame, rooms_config: list, separate_genders: 
 
     for target_gender in genders_to_process:
         active_queue = queues[target_gender]
-        
         while any(active_queue.values()):
             student = pop_mixed_student(active_queue)
-            if not student:
-                break
+            if not student: break
             
             placed = False
             for room in rooms_config:
                 r_name = room["name"]
-                if len(allocated_rooms[r_name]) >= room_capacities[r_name]:
-                    continue
+                if len(allocated_rooms[r_name]) >= room_capacities[r_name]: continue
                 if separate_genders:
                     current_lock = room_gender_locks[r_name]
-                    if current_lock is None:
-                        room_gender_locks[r_name] = target_gender
-                    elif current_lock != target_gender:
-                        continue 
+                    if current_lock is None: room_gender_locks[r_name] = target_gender
+                    elif current_lock != target_gender: continue 
                 
                 allocated_rooms[r_name].append(student)
                 placed = True
                 break
             
-            if not placed:
-                unassigned_students.append(student)
+            if not placed: unassigned_students.append(student)
 
     return allocated_rooms, unassigned_students
 
 # ─── Bench Seating Algorithm ─────────────────────────────────────────────────
 
 def create_bench_layout(students: list[dict]) -> list[list]:
-    """Arrange students into bench rows of 3."""
     groups = defaultdict(list)
-    for s in students:
-        groups[s["class"]].append(s)
+    for s in students: groups[s["class"]].append(s)
 
-    # Use the custom Roman numeral sort
     class_order = sort_classes(groups.keys())
     queues = {c: list(groups[c]) for c in class_order}
     benches = []
@@ -159,8 +147,7 @@ def create_bench_layout(students: list[dict]) -> list[list]:
         if len(available) == 1:
             cls, q = available[0]
             while q:
-                triple = [q.pop(0), q.pop(0) if q else None, q.pop(0) if q else None]
-                benches.append(triple)
+                benches.append([q.pop(0), q.pop(0) if q else None, q.pop(0) if q else None])
             break
 
         available.sort(key=lambda x: len(x[1]), reverse=True)
@@ -191,15 +178,12 @@ def _room_diagram(benches: list[list], room_config: dict) -> Drawing:
     B_W, B_H = 50, 34                    
     GAP_X, GAP_Y = 8, 8
     SEAT_R = 6
-
     COLS = len(col_heights)
     max_rows = max(col_heights) if col_heights else 1
-    
     dw = COLS * (B_W + GAP_X) + GAP_X
     dh = max_rows * (B_H + GAP_Y) + GAP_Y + 22  
 
     d = Drawing(dw, dh)
-
     board_w = min(dw * 0.6, 200)
     bx = (dw - board_w) / 2
     d.add(Rect(bx, dh - 20, board_w, 14, fillColor=colors.HexColor("#2e7d32"), strokeColor=colors.HexColor("#1b5e20"), strokeWidth=1))
@@ -212,10 +196,8 @@ def _room_diagram(benches: list[list], room_config: dict) -> Drawing:
             bench = benches[bench_idx]
             x = GAP_X + col_idx * (B_W + GAP_X)
             y = dh - 22 - (row_idx + 1) * (B_H + GAP_Y)
-
             cls = next((s["class"] for s in bench if s), "V")
-            fill_hex = CLASS_COLORS.get(cls, "#90caf9")
-            fill = colors.HexColor(fill_hex)
+            fill = colors.HexColor(CLASS_COLORS.get(cls, "#90caf9"))
 
             d.add(Rect(x, y, B_W, B_H, fillColor=colors.HexColor("#e3f2fd"), strokeColor=colors.HexColor("#90caf9"), strokeWidth=0.8))
             d.add(String(x + B_W / 2, y + B_H - 9, f"B{bench_idx+1}", fontName="Helvetica-Bold", fontSize=6, fillColor=colors.HexColor("#1a237e"), textAnchor="middle"))
@@ -241,7 +223,6 @@ def generate_pdf(allocated_rooms: dict, rooms_config: list) -> io.BytesIO:
         if idx > 0: story.append(PageBreak())
 
         benches = create_bench_layout(students)
-
         story.append(Paragraph(SCHOOL_NAME, st_exam))
         story.append(Paragraph(str(r_name).upper(), st_room))
         story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#0f3460"), spaceAfter=3*mm))
@@ -251,26 +232,18 @@ def generate_pdf(allocated_rooms: dict, rooms_config: list) -> io.BytesIO:
 
         hdr = [["Class", "Boys", "Girls", "Total"]]
         body, tb, tg = [], 0, 0
-        
-        # Enforce strict Class order in the PDF table
         for cls in sort_classes(counts.keys()):
             b, g = counts[cls]["BOYS"], counts[cls]["GIRLS"]
             body.append([f"Class {cls}", str(b) if b else "–", str(g) if g else "–", str(b + g)])
             tb += b; tg += g
             
         body.append(["TOTAL", str(tb), str(tg), str(tb + tg)])
-
         summary_tbl = Table(hdr + body, colWidths=[35*mm, 24*mm, 24*mm, 24*mm], hAlign="CENTER")
         summary_tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f3460")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-            ("BACKGROUND", (0,-1), (-1,-1), colors.HexColor("#dde8f0")),
-            ("ALIGN", (0, 0), (-1,-1), "CENTER"),
-            ("VALIGN", (0, 0), (-1,-1), "MIDDLE"),
-            ("GRID", (0, 0), (-1,-1), 0.5, colors.HexColor("#aaaaaa")),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f3460")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"), ("BACKGROUND", (0,-1), (-1,-1), colors.HexColor("#dde8f0")),
+            ("ALIGN", (0, 0), (-1,-1), "CENTER"), ("VALIGN", (0, 0), (-1,-1), "MIDDLE"), ("GRID", (0, 0), (-1,-1), 0.5, colors.HexColor("#aaaaaa")),
         ]))
-
         story.append(Paragraph("CLASS-WISE STUDENT COUNT", st_section))
         story.append(summary_tbl)
         story.append(Spacer(1, 4*mm))
@@ -282,17 +255,12 @@ def generate_pdf(allocated_rooms: dict, rooms_config: list) -> io.BytesIO:
         story.append(Paragraph("BENCH-WISE SEATING ARRANGEMENT", st_section))
         bench_hdr = [["Bench\nNo.", "LEFT SEAT\n(Roll | Class | Gender | Name)", "MIDDLE SEAT\n(Roll | Class | Gender | Name)", "RIGHT SEAT\n(Roll | Class | Gender | Name)"]]
         bench_rows = [[str(i + 1)] + [_seat_cell(s) for s in bench] for i, bench in enumerate(benches)]
-
         bench_tbl = Table(bench_hdr + bench_rows, colWidths=[12*mm, 53*mm, 53*mm, 53*mm], repeatRows=1)
         ts = [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16213e")),
-            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
-            ("FONTNAME",   (0, 0), (-1, -1), "Helvetica-Bold"),
-            ("BACKGROUND", (0, 1), (0, -1), colors.HexColor("#e8eaf6")),
-            ("FONTSIZE",   (0, 0), (-1, -1), 7.5),
-            ("ALIGN",      (0, 0), (-1, -1), "CENTER"),
-            ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
-            ("GRID",       (0, 0), (-1, -1), 0.5, colors.HexColor("#c0c0c0")),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16213e")), ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
+            ("FONTNAME",   (0, 0), (-1, -1), "Helvetica-Bold"), ("BACKGROUND", (0, 1), (0, -1), colors.HexColor("#e8eaf6")),
+            ("FONTSIZE",   (0, 0), (-1, -1), 7.5), ("ALIGN",      (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"), ("GRID",       (0, 0), (-1, -1), 0.5, colors.HexColor("#c0c0c0")),
         ]
         bench_tbl.setStyle(TableStyle(ts))
         story.append(bench_tbl)
@@ -305,30 +273,18 @@ def generate_pdf(allocated_rooms: dict, rooms_config: list) -> io.BytesIO:
     return buf
 
 def generate_student_list_excel(student_df, classes_to_print):
-    """Generates an Excel workbook with one sheet per class."""
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         for cls in classes_to_print:
             cls_data = student_df[student_df['class'] == cls].copy()
             if cls_data.empty: continue
-            
             boys = cls_data[cls_data['gender'] == 'BOYS'].sort_values('roll')
             girls = cls_data[cls_data['gender'] == 'GIRLS'].sort_values('roll')
-            
-            # Independent serial numbers starting at 1
             boys['SL.'] = range(1, len(boys) + 1)
             girls['SL.'] = range(1, len(girls) + 1)
-            
             combined = pd.concat([boys, girls])
-            
-            export_df = combined[['gender', 'SL.', 'roll', 'name']].rename(columns={
-                'gender': 'Gender',
-                'roll': 'Roll Number',
-                'name': 'Student Name'
-            })
-            
+            export_df = combined[['gender', 'SL.', 'roll', 'name']].rename(columns={'gender': 'Gender', 'roll': 'Roll Number', 'name': 'Student Name'})
             export_df.to_excel(writer, sheet_name=f"Class {cls}", index=False)
-            
     buf.seek(0)
     return buf
 
@@ -371,7 +327,6 @@ def main():
         st.warning("No valid students found in the file. Check formatting.")
         return
 
-    # Use custom Roman sorting for Class Selectors
     available_classes = sort_classes(raw_df["class"].unique())
     if class_mode == "Custom Classes":
         selected_classes = st.sidebar.multiselect("Select Classes to Process", available_classes, default=available_classes)
@@ -382,7 +337,7 @@ def main():
     st.success(f"✅ Loaded **{len(df):,}** students to process.")
 
     # =========================================================================
-    # 4. CLASS SUMMARY & STUDENT LISTS (WITH STRICT SORTING & EXCEL EXPORT)
+    # 4. CLASS SUMMARY & STUDENT LISTS (6-TABLE LAYOUT FOR PDF)
     # =========================================================================
     st.markdown("---")
     st.header("📋 Class Summary & Student Lists")
@@ -390,18 +345,11 @@ def main():
     if not df.empty:
         st.subheader("Class Summary")
         summary_data = []
-        
-        # Strictly sort classes for Summary Table
         for cls in sort_classes(df['class'].unique()):
             cls_df = df[df['class'] == cls]
             boys_count = len(cls_df[cls_df['gender'] == 'BOYS'])
             girls_count = len(cls_df[cls_df['gender'] == 'GIRLS'])
-            summary_data.append({
-                "Class": cls,
-                "Total Students": boys_count + girls_count,
-                "Boys": boys_count,
-                "Girls": girls_count
-            })
+            summary_data.append({"Class": cls, "Total Students": boys_count + girls_count, "Boys": boys_count, "Girls": girls_count})
         
         summary_df = pd.DataFrame(summary_data)
         st.dataframe(summary_df, use_container_width=True)
@@ -412,19 +360,13 @@ def main():
             elements = []
             title_style = ParagraphStyle(name="Title", fontSize=16, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=10*mm)
             elements.append(Paragraph(f"{SCHOOL_NAME} - Class Summary", title_style))
-            
             data = [["Class", "Total Students", "Boys", "Girls"]]
-            for _, row in sum_df.iterrows():
-                data.append([str(row['Class']), str(row['Total Students']), str(row['Boys']), str(row['Girls'])])
-                
+            for _, row in sum_df.iterrows(): data.append([str(row['Class']), str(row['Total Students']), str(row['Boys']), str(row['Girls'])])
             t = Table(data, colWidths=[40*mm, 40*mm, 40*mm, 40*mm])
             t.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#0f3460")),
-                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0,0), (-1,0), 8),
-                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#f5f8ff")),
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#0f3460")), ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,0), 8), ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#f5f8ff")),
                 ('GRID', (0,0), (-1,-1), 1, colors.black),
             ]))
             elements.append(t)
@@ -432,19 +374,13 @@ def main():
             buf.seek(0)
             return buf
 
-        st.download_button(
-            label="📥 Download Class Summary PDF",
-            data=generate_summary_pdf(summary_df),
-            file_name="Class_Summary.pdf",
-            mime="application/pdf"
-        )
+        st.download_button(label="📥 Download Class Summary PDF", data=generate_summary_pdf(summary_df), file_name="Class_Summary.pdf", mime="application/pdf")
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("Generate Class-wise Student List")
         
         col1, col2 = st.columns(2)
-        with col1:
-            list_option = st.radio("Select Generation Mode:", ["All Classes", "Selected Class Only"])
+        with col1: list_option = st.radio("Select Generation Mode:", ["All Classes", "Selected Class Only"])
         
         selected_cls_list = []
         with col2:
@@ -455,14 +391,13 @@ def main():
                 selected_cls_list = sort_classes(df['class'].unique())
 
         def generate_student_list_pdf(student_df, classes_to_print):
-            """Generates a compact 6-column PDF to fit a whole class on one page."""
+            """Generates an ultra-compressed 6-Table (3 Boys + 3 Girls) layout per page."""
             buf = io.BytesIO()
-            # Extremely tight margins to maximize space
-            doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=12*mm, rightMargin=12*mm, topMargin=12*mm, bottomMargin=12*mm)
+            doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=8*mm, rightMargin=8*mm, topMargin=10*mm, bottomMargin=10*mm)
             elements = []
             
-            title_style = ParagraphStyle(name="Title", fontSize=13, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=2*mm)
-            subtitle_style = ParagraphStyle(name="Sub", fontSize=11, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=5*mm)
+            title_style = ParagraphStyle(name="Title", fontSize=14, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=2*mm)
+            subtitle_style = ParagraphStyle(name="Sub", fontSize=11, alignment=TA_CENTER, fontName="Helvetica-Bold", spaceAfter=4*mm)
             
             for idx, cls in enumerate(classes_to_print):
                 if idx > 0: elements.append(PageBreak())
@@ -471,80 +406,90 @@ def main():
                 elements.append(Paragraph(f"{SCHOOL_NAME}", title_style))
                 elements.append(Paragraph(f"Class: {cls} - Student List", subtitle_style))
                 
-                # Extract sorted lists
                 boys = cls_data[cls_data['gender'] == 'BOYS'].sort_values('roll')
                 girls = cls_data[cls_data['gender'] == 'GIRLS'].sort_values('roll')
                 
                 b_list = [[str(i+1), str(row['roll']), str(row['name'])] for i, (_, row) in enumerate(boys.iterrows())]
                 g_list = [[str(i+1), str(row['roll']), str(row['name'])] for i, (_, row) in enumerate(girls.iterrows())]
                 
-                max_len = max(len(b_list), len(g_list))
+                # Calculate minimum rows needed assuming we split into 3 vertical blocks for boys and 3 for girls
+                rows_needed = max(math.ceil(len(b_list)/3), math.ceil(len(g_list)/3))
+                if rows_needed == 0: continue
                 
-                # Pad shorter list
-                while len(b_list) < max_len: b_list.append(["", "", ""])
-                while len(g_list) < max_len: g_list.append(["", "", ""])
-                
-                # 6 Column Data Layout
+                # 18 columns total (6 sets of SL, Roll, Name)
                 data = [
-                    ["BOYS", "", "", "GIRLS", "", ""],
-                    ["SL.", "Roll", "Name", "SL.", "Roll", "Name"]
+                    ["BOYS", "", "", "", "", "", "", "", "", "GIRLS", "", "", "", "", "", "", "", ""],
+                    ["SL", "Roll", "Name"] * 6
                 ]
                 
-                for i in range(max_len):
-                    data.append(b_list[i] + g_list[i])
+                for i in range(rows_needed):
+                    row = []
+                    # 3 Blocks of Boys
+                    for b_block in range(3):
+                        b_idx = i + b_block * rows_needed
+                        if b_idx < len(b_list): row.extend(b_list[b_idx])
+                        else: row.extend(["", "", ""])
+                            
+                    # 3 Blocks of Girls
+                    for g_block in range(3):
+                        g_idx = i + g_block * rows_needed
+                        if g_idx < len(g_list): row.extend(g_list[g_idx])
+                        else: row.extend(["", "", ""])
+                            
+                    data.append(row)
                 
-                # Total Width 186mm (A4 210mm - 24mm Margins)
-                col_widths = [12*mm, 16*mm, 65*mm, 12*mm, 16*mm, 65*mm]
+                # Total width 192mm (fits perfectly inside 210mm A4 minus 16mm margins)
+                col_widths = [5.5*mm, 7.5*mm, 19*mm] * 6 
                 
-                tbl_style = TableStyle([
-                    # BOYS Top Header
-                    ('SPAN', (0,0), (2,0)),
-                    ('BACKGROUND', (0,0), (2,0), colors.HexColor("#0f3460")),
-                    ('TEXTCOLOR', (0,0), (2,0), colors.white),
-                    ('ALIGN', (0,0), (2,0), 'CENTER'),
-                    ('FONTNAME', (0,0), (2,0), 'Helvetica-Bold'),
+                ts = [
+                    ('SPAN', (0,0), (8,0)),   # Span "BOYS"
+                    ('SPAN', (9,0), (17,0)),  # Span "GIRLS"
                     
-                    # GIRLS Top Header
-                    ('SPAN', (3,0), (5,0)),
-                    ('BACKGROUND', (3,0), (5,0), colors.HexColor("#0f3460")),
-                    ('TEXTCOLOR', (3,0), (5,0), colors.white),
-                    ('ALIGN', (3,0), (5,0), 'CENTER'),
-                    ('FONTNAME', (3,0), (5,0), 'Helvetica-Bold'),
+                    # Colors
+                    ('BACKGROUND', (0,0), (8,0), colors.HexColor("#e3f2fd")), # Blue tint for Boys header
+                    ('BACKGROUND', (9,0), (17,0), colors.HexColor("#fce4ec")), # Pink tint for Girls header
+                    ('BACKGROUND', (0,1), (17,1), colors.HexColor("#eeeeee")), # Grey for Subheaders
                     
-                    # Subheaders
-                    ('BACKGROUND', (0,1), (5,1), colors.HexColor("#e0e0e0")),
-                    ('FONTNAME', (0,1), (-1,1), 'Helvetica-Bold'),
-                    
-                    # Alignments
-                    ('ALIGN', (0,1), (1,-1), 'CENTER'), # Boys SL, Roll
-                    ('ALIGN', (2,1), (2,-1), 'LEFT'),   # Boys Name
-                    ('ALIGN', (3,1), (4,-1), 'CENTER'), # Girls SL, Roll
-                    ('ALIGN', (5,1), (5,-1), 'LEFT'),   # Girls Name
-                    
-                    # SMALL FONT and MINIMAL PADDING to fit 120+ kids per page
-                    ('FONTSIZE', (0,0), (-1,-1), 8),
+                    # Alignments & Font
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                     ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                    ('TOPPADDING', (0,0), (-1,-1), 2),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                    ('FONTNAME', (0,0), (-1,1), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,-1), 6.5), # SMALL FONT to maximize fit
                     
-                    # Grid and Center Divider
+                    # Name Left-Align
+                    ('ALIGN', (2,2), (2,-1), 'LEFT'), ('ALIGN', (5,2), (5,-1), 'LEFT'),
+                    ('ALIGN', (8,2), (8,-1), 'LEFT'), ('ALIGN', (11,2), (11,-1), 'LEFT'),
+                    ('ALIGN', (14,2), (14,-1), 'LEFT'), ('ALIGN', (17,2), (17,-1), 'LEFT'),
+                    
+                    # Core Grid
                     ('GRID', (0,0), (-1,-1), 0.5, colors.black),
-                    ('LINEAFTER', (2,0), (2,-1), 1.5, colors.black), # Thick divider down the middle
-                ])
+                    
+                    # Dividing lines to create the "6 Table" look
+                    ('LINEAFTER', (2,0), (2,-1), 1.2, colors.black),
+                    ('LINEAFTER', (5,0), (5,-1), 1.2, colors.black),
+                    ('LINEAFTER', (8,0), (8,-1), 2.5, colors.black), # Thickest center separator
+                    ('LINEAFTER', (11,0), (11,-1), 1.2, colors.black),
+                    ('LINEAFTER', (14,0), (14,-1), 1.2, colors.black),
+                    
+                    # Extreme compression padding
+                    ('TOPPADDING', (0,0), (-1,-1), 1),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                    ('LEFTPADDING', (0,0), (-1,-1), 1),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 1),
+                ]
                 
                 t = Table(data, colWidths=col_widths, repeatRows=2)
-                t.setStyle(tbl_style)
+                t.setStyle(TableStyle(ts))
                 elements.append(t)
 
             doc.build(elements)
             buf.seek(0)
             return buf
 
-        # Download Buttons Container
         col_dl1, col_dl2 = st.columns(2)
         with col_dl1:
             st.download_button(
-                label="📄 Download Student List (PDF)",
+                label="📄 Download 6-Table Compressed Student List (PDF)",
                 data=generate_student_list_pdf(df, selected_cls_list),
                 file_name=f"Student_List_{list_option.replace(' ', '_')}.pdf",
                 mime="application/pdf",
